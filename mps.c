@@ -75,6 +75,14 @@ void* thread_function(void* args) {
     // the function that will be run by each thread
     printf("Hello from thread %d\n");
 
+    while(1) {
+        // TODO: queuedan burst al varsa yoksa bekle
+        // finish time ve turnaround timeı updatele 
+
+
+        usleep(1);
+    }
+
     pthread_exit(NULL);
 }
 
@@ -166,8 +174,27 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Create ready queue
-    queue_t* ready_queue =  (queue_t*) malloc(sizeof(queue_t));
+    // Scheduling approach multiqueue or singlequeue
+    if (1) {
+        // Create ready queue
+        queue_t* ready_queue =  (queue_t*) malloc(sizeof(queue_t));
+    } else {
+        for (int i = 0; i < num_processors; i++)
+        {
+            // TODO: queue array
+        }
+        
+    }
+
+    // TODO: queue sonuna bi marker koy o geldiğinde diğer threadleri bekle 
+    // TODO: Algoritmalara göre queueya at
+    // Scheduling approach multiqueue or singlequeue
+    if (1) {
+        // TODO: Add burst to single queue
+    } else {
+        // TODO: RM ya da LB olmasına göre quelara burstleri yerleştir
+    }
+
 
     // Read file
     FILE *fp;
