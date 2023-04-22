@@ -6,6 +6,18 @@
 #include <sys/time.h>
 #include <getopt.h>
 
+// Global variables
+int num_processors = 2;
+char scheduling_approach = 'M';
+char queue_selection_method = 'R';
+char scheduling_algorithm = 'R';
+int time_quantum = 20;
+
+queue_t* single_queue;
+queue_t** queue_array;
+
+struct timeval starttime, endtime;
+
 // struct for a process
 typedef struct process {
     int pid;                // process ID
@@ -14,6 +26,7 @@ typedef struct process {
     int remaining_time;     // remaining time of the process (used for RR algorithm)
     int finish_time;        // finish time of the process
     int turnaround_time;    // turnaround time of the process
+    int waiting_time;       // waiting time of the process
     int processor_id;       // ID of the processor in which the process has executed
 } process_t;
 
@@ -70,31 +83,74 @@ process_t* remove_from_queue(queue_t *queue) {
     return process;
 }
 
-void* thread_function(void* args) {
+typedef struct {
+    int threadNo;
+} ThreadArgs;
 
-    // the function that will be run by each thread
-    printf("Hello from thread %d\n");
-
-    while(1) {
-        // TODO: queuedan burst al varsa yoksa bekle
-        // finish time ve turnaround timeı updatele 
-
-
+void execute_process(queue_t* queue) {
+    process_t* curr_proccess = remove_from_queue(queue);
+            
+    // Wait 1 sec if there is no process
+    if (curr_proccess == NULL) {
         usleep(1);
-    }
+    } else {
+        // If marked node
+        if(0){ // TODO: change condition as isMarked
+            pthread_exit(NULL);
+        } else {
+            // burst the process
+            if (scheduling_algorithm != 'RR') { // SJF, FCFS
+                wait(curr_proccess->burst_length);
 
-    pthread_exit(NULL);
+                gettimeofday(&endtime, NULL);
+                // Calculate elapsed time
+                long int finish_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+                curr_proccess->finish_time = finish_time;
+                curr_proccess->turnaround_time = curr_proccess->finish_time - curr_proccess->arrival_time;
+                curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
+                
+            } else { // RR
+                if (curr_proccess->remaining_time > time_quantum) {
+                    wait(time_quantum);
+                    // update remaining time
+                    curr_proccess->remaining_time = curr_proccess->remaining_time - time_quantum;
+                    // put back the end of the queue
+                    add_to_queue(queue, curr_proccess);
+                } else {
+                    wait(curr_proccess->remaining_time);
+
+                    gettimeofday(&endtime, NULL);
+                    // Calculate elapsed time
+                    long int finish_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+                    curr_proccess->finish_time = finish_time;
+                    curr_proccess->turnaround_time = curr_proccess->finish_time - curr_proccess->arrival_time;
+                    curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
+                }
+            }
+            
+        }
+    }
 }
 
+void* thread_function(void* args) {
+    ThreadArgs* thread_args = (ThreadArgs*)args;
+
+    // the function that will be run by each thread
+    printf("Hello from thread %d\n", thread_args->threadNo);
+
+    while(1) {
+        // queuedan process al varsa yoksa bekle
+        if (scheduling_approach == 'M') {   // Multi queue
+            execute_process(queue_array[thread_args->threadNo]);
+        } else {    // Single queue
+            execute_process(single_queue);
+        }
+    }
+}
 
 int main(int argc, char* argv[]) {
 
     // Get arguments
-    int num_processors = 2;
-    char scheduling_approach = 'M';
-    char queue_selection_method = 'R';
-    char scheduling_algorithm = 'R';
-    int time_quantum = 20;
     char* input_file = "in.txt";
     int output_mode = 1;
     char* output_file = "out.txt";
@@ -154,7 +210,6 @@ int main(int argc, char* argv[]) {
     time_t t;
     srand((unsigned) time(&t));
 
-    struct timeval starttime, endtime;
     gettimeofday(&starttime, NULL);
 
     // Create processor threads
@@ -162,11 +217,10 @@ int main(int argc, char* argv[]) {
     int rc;
 
     for (int i = 0; i < num_processors; i++) {
-        // ThreadArgs* args = (ThreadArgs*) malloc(sizeof(ThreadArgs));
-        //args->threadNo = i;
-        //args->size = 1000;
+        ThreadArgs* args = (ThreadArgs*) malloc(sizeof(ThreadArgs));
+        args->threadNo = i;
         printf("Creating thread %d\n", i);
-        rc = pthread_create(&threads[i], NULL, thread_function, NULL);
+        rc = pthread_create(&threads[i], NULL, thread_function, args);
 
         if (rc) {
             printf("Error creating thread %d\n", i);
