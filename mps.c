@@ -99,8 +99,8 @@ void execute_process(queue_t* queue) {
             pthread_exit(NULL);
         } else {
             // burst the process
-            if (scheduling_algorithm != 'RR') { // SJF, FCFS
-                wait(curr_proccess->burst_length);
+            if (scheduling_algorithm[0] != 'R') { // SJF, FCFS //TODO: burda bir problem vardi check ederken, character by character check edilmeli
+                wait(curr_proccess->burst_length); //TODO: Bunlar usleep() mi olmalıydı?
 
                 gettimeofday(&endtime, NULL);
                 // Calculate elapsed time
@@ -228,40 +228,82 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Scheduling approach multiqueue or singlequeue
-    if (1) {
+    // Create ready queues acc. to scheduling approach: multiqueue or singlequeue
+    if (scheduling_approach == 'S') {
         // Create ready queue
         queue_t* ready_queue =  (queue_t*) malloc(sizeof(queue_t));
     } else {
+        queue_t** ready_queues = (queue_t**) malloc(num_processors*sizeof(queue_t*))
+
         for (int i = 0; i < num_processors; i++)
         {
-            // TODO: queue array
+            ready_queues[i] = (queue_t*) malloc(sizeof(queue_t));
         }
-        
     }
 
-    // TODO: queue sonuna bi marker koy o geldiğinde diğer threadleri bekle 
-    // TODO: Algoritmalara göre queueya at
-    // Scheduling approach multiqueue or singlequeue
-    if (1) {
-        // TODO: Add burst to single queue
-    } else {
-        // TODO: RM ya da LB olmasına göre quelara burstleri yerleştir
-    }
-
-
-    // Read file
     FILE *fp;
-    char word[100];
+    char line[100];
 
     fp = fopen(input_file, "r");
     if (fp == NULL) {
         printf("Failed to open file\n");
     }
 
-    while (fscanf(fp, "%s", word) != EOF) {
-        printf("Word: %s\n", word);
+    int pid = 1; //first process id is 1.
+    int arrival_time = 0; //first process arrives at 0.
+    while (fgets(line, 100, fp)) {
+        if ( line[0] == 'P' && line[1] == 'L') {
+            int burst_length;
+            if(sscanf(line,"PL %d", &burst_length) != 1) {
+                printf("Error parsing burst length in line: %s", line);
+                return -1;
+            }
+            process_t* newBurst = (process_t *) malloc(sizeof(process_t));
+            newBurst->pid = pid;
+            pid++;
+            newBurst->burst_length = burst_length;
+            newBurst->arrival_time = arrival_time;
+            newBurst->remaining_time = burst_length;
+            newBurst->finish_time = 0;  // will be updated later
+            newBurst->turnaround_time = 0;  // will be updated later
+            newBurst->waiting_time = 0;  // will be updated later
+            newBurst->processor_id = -1;  // not assigned to any processor yet
+            if( scheduling_approach == 'S' ) {
+                add_to_queue(ready_queue, newBurst)
+            }
+            else if ( scheduling_approach == 'M') {
+                //ToDo: LM OR RM implementation
+            }
+        }
+        else if ( line[0] == 'I' && line[1] == 'A' && line[2] == 'T' ) {
+            int interarrival_time;
+            if (sscanf(line, "IAT %d", &interarrival_time) != 1) {
+                printf("Error parsing interarrival time in line: %s", line);
+                return -1;
+            }
+            usleep(interarrival_time * 1000);  //todo: emin degilim? convert to microseconds
+            arrival_time += interarrival_time; //todo: emin degilim?
+        } else {
+            // Invalid line
+            printf("Error: Invalid line in input file: %s", line);
+            return -1;
+        }
     }
+
+    if (scheduling_approach == 'S') {
+        process_t* dummyBurst = (process_t *) malloc(sizeof(process_t));
+        dummyBurst->pid = -1;
+        add_to_queue(ready_queue, dummyBurst);
+        // TODO: queue sonuna bi marker koy o geldiğinde diğer threadleri bekle
+    }
+    else if (scheduling_approach == 'M') {
+        // TODO: queue sonuna bi marker koy o geldiğinde diğer threadleri bekle
+    }
+
+
+
+    // Read file
+
     fclose(fp);
 
     // wait for all threads to finish
