@@ -16,17 +16,17 @@ int time_quantum = 20;
 queue_t* single_queue;
 queue_t** queue_array;
 
-struct timeval starttime, endtime;
+struct timeval starttime, currenttime, endtime;
 
 // struct for a process
 typedef struct process {
     int pid;                // process ID
-    int burst_length;       // length of the CPU burst
-    int arrival_time;       // arrival time of the process
-    int remaining_time;     // remaining time of the process (used for RR algorithm)
-    int finish_time;        // finish time of the process
-    int turnaround_time;    // turnaround time of the process
-    int waiting_time;       // waiting time of the process
+    long burst_length;       // length of the CPU burst
+    long arrival_time;       // arrival time of the process
+    long remaining_time;     // remaining time of the process (used for RR algorithm)
+    long finish_time;        // finish time of the process
+    long turnaround_time;    // turnaround time of the process
+    long waiting_time;       // waiting time of the process
     int processor_id;       // ID of the processor in which the process has executed
 } process_t;
 
@@ -49,6 +49,28 @@ node_t* new_node(process_t *process) {
     node->process = process;
     node->next = NULL;
     return node;
+}
+
+int  load_balance_queue_find( queue_t** queues ) {
+    int index;
+    long min = 1000000;
+    for ( int i = 0; i < num_processors; i++ ) {
+        node_t* traverser = queues[i]->head;
+        long totalBurstLength = 0;
+        while ( traverser != NULL ) {
+            totalBurstLength += traverser->process->burst_length;
+            traverser = traverser->next;
+        }
+        if ( traverser == NULL ){
+            if ( totalBurstLength < min ) {
+                min = totalBurstLength;
+                index = i;
+            }
+        }
+    }
+    return index;
+    
+
 }
 
 // Function to add a process to the ready queue
@@ -250,7 +272,6 @@ int main(int argc, char* argv[]) {
     }
 
     int pid = 1; //first process id is 1.
-    int arrival_time = 0; //first process arrives at 0.
     while (fgets(line, 100, fp)) {
         if ( line[0] == 'P' && line[1] == 'L') {
             int burst_length;
@@ -262,7 +283,14 @@ int main(int argc, char* argv[]) {
             newBurst->pid = pid;
             pid++;
             newBurst->burst_length = burst_length;
+
+            gettimeofday(&currenttime, NULL);
+            long elapsed_sec = starttime.tv_sec - currenttime.tv_sec;
+            long elapsed_msec = starttime.tv_usec - currenttime.tv_usec;
+            arrival_time = elapsed_sec * 1000000L + elapsed_msec;
             newBurst->arrival_time = arrival_time;
+
+
             newBurst->remaining_time = burst_length;
             newBurst->finish_time = 0;  // will be updated later
             newBurst->turnaround_time = 0;  // will be updated later
@@ -273,6 +301,15 @@ int main(int argc, char* argv[]) {
             }
             else if ( scheduling_approach == 'M') {
                 //ToDo: LM OR RM implementation
+                int queue_index = 0;
+                if (queue_selection_method == 'R') {//Round Robin
+                    add_to_queue(ready_queues[queue_index], newBurst);
+                    queue_index = ( queue_index + 1 ) % num_processors;
+                }
+                else if (queue_selection_method == 'L') {//Load Balancing
+
+                }
+
             }
         }
         else if ( line[0] == 'I' && line[1] == 'A' && line[2] == 'T' ) {
@@ -281,8 +318,7 @@ int main(int argc, char* argv[]) {
                 printf("Error parsing interarrival time in line: %s", line);
                 return -1;
             }
-            usleep(interarrival_time * 1000);  //todo: emin degilim? convert to microseconds
-            arrival_time += interarrival_time; //todo: emin degilim?
+            usleep(interarrival_time );
         } else {
             // Invalid line
             printf("Error: Invalid line in input file: %s", line);
