@@ -117,12 +117,12 @@ void execute_process(queue_t* queue) {
         usleep(1);
     } else {
         // If marked node
-        if(0){ // TODO: change condition as isMarked
+        if(curr_proccess->pid == -1){
             pthread_exit(NULL);
         } else {
             // burst the process
-            if (scheduling_algorithm[0] != 'R') { // SJF, FCFS //TODO: burda bir problem vardi check ederken, character by character check edilmeli
-                wait(curr_proccess->burst_length); //TODO: Bunlar usleep() mi olmalıydı?
+            if (scheduling_algorithm != 'R') { // SJF, FCFS //TODO: burda bir problem vardi check ederken, character by character check edilmeli
+                usleep(curr_proccess->burst_length); 
 
                 gettimeofday(&endtime, NULL);
                 // Calculate elapsed time
@@ -133,13 +133,13 @@ void execute_process(queue_t* queue) {
                 
             } else { // RR
                 if (curr_proccess->remaining_time > time_quantum) {
-                    wait(time_quantum);
+                    usleep(time_quantum);
                     // update remaining time
                     curr_proccess->remaining_time = curr_proccess->remaining_time - time_quantum;
                     // put back the end of the queue
                     add_to_queue(queue, curr_proccess);
                 } else {
-                    wait(curr_proccess->remaining_time);
+                    usleep(curr_proccess->remaining_time);
 
                     gettimeofday(&endtime, NULL);
                     // Calculate elapsed time
@@ -255,7 +255,7 @@ int main(int argc, char* argv[]) {
         // Create ready queue
         queue_t* ready_queue =  (queue_t*) malloc(sizeof(queue_t));
     } else {
-        queue_t** ready_queues = (queue_t**) malloc(num_processors*sizeof(queue_t*))
+        queue_t** ready_queues = (queue_t**) malloc(num_processors*sizeof(queue_t*));
 
         for (int i = 0; i < num_processors; i++)
         {
@@ -287,7 +287,7 @@ int main(int argc, char* argv[]) {
             gettimeofday(&currenttime, NULL);
             long elapsed_sec = starttime.tv_sec - currenttime.tv_sec;
             long elapsed_msec = starttime.tv_usec - currenttime.tv_usec;
-            arrival_time = elapsed_sec * 1000000L + elapsed_msec;
+            long arrival_time = elapsed_sec * 1000000L + elapsed_msec;
             newBurst->arrival_time = arrival_time;
 
 
@@ -297,13 +297,13 @@ int main(int argc, char* argv[]) {
             newBurst->waiting_time = 0;  // will be updated later
             newBurst->processor_id = -1;  // not assigned to any processor yet
             if( scheduling_approach == 'S' ) {
-                add_to_queue(ready_queue, newBurst)
+                add_to_queue(single_queue, newBurst);
             }
             else if ( scheduling_approach == 'M') {
                 //ToDo: LM OR RM implementation
                 int queue_index = 0;
                 if (queue_selection_method == 'R') {//Round Robin
-                    add_to_queue(ready_queues[queue_index], newBurst);
+                    add_to_queue(queue_array[queue_index], newBurst);
                     queue_index = ( queue_index + 1 ) % num_processors;
                 }
                 else if (queue_selection_method == 'L') {//Load Balancing
@@ -329,7 +329,7 @@ int main(int argc, char* argv[]) {
     if (scheduling_approach == 'S') {
         process_t* dummyBurst = (process_t *) malloc(sizeof(process_t));
         dummyBurst->pid = -1;
-        add_to_queue(ready_queue, dummyBurst);
+        add_to_queue(single_queue, dummyBurst);
         // TODO: queue sonuna bi marker koy o geldiğinde diğer threadleri bekle
     }
     else if (scheduling_approach == 'M') {
