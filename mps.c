@@ -9,12 +9,11 @@
 
 // Global variables
 int num_processors = 2;
-char scheduling_approach = 'S';
-char queue_selection_method[] = "RM";
-char scheduling_algorithm[] = "FCFS";
+char scheduling_approach = 'M';
+char queue_selection_method = 'L';
+char scheduling_algorithm = 'F';
 int time_quantum = 20;
-
-
+int output_mode = 2;
 
 struct timeval starttime, currenttime, endtime;
 
@@ -45,6 +44,7 @@ typedef struct queue {
 
 queue_t* single_queue;
 queue_t** queue_array;
+process_t* bursted_process; // TODO:
 
 // Function to create a new node
 node_t* new_node(process_t *process) {
@@ -122,11 +122,16 @@ void execute_process(queue_t* queue, int threadNo) {
     printf(" thread %d try to execute process\n", threadNo);
 
     process_t* curr_proccess = remove_from_queue(queue);
-
+    
+    if (curr_proccess != NULL && output_mode != 1 && curr_proccess->pid != -1) {
+        gettimeofday(&endtime, NULL);
+        // Calculate elapsed time
+        long int timestamp = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+        printf("time =  %ld,  cpu = %d, pid = %d, burstlen = %ld, remainingtime = %ld\n", timestamp, threadNo, curr_proccess->pid, curr_proccess->burst_length, curr_proccess->remaining_time);
+    }
             
     // Wait 1 sec if there is no process
     if (curr_proccess == NULL) {
-
         usleep(1);
     } else {
         
@@ -138,7 +143,7 @@ void execute_process(queue_t* queue, int threadNo) {
             pthread_exit(NULL);
         } else {
             // burst the process
-            if (scheduling_algorithm != "RR") { // SJF, FCFS //TODO: burda bir problem vardi check ederken, character by character check edilmeli
+            if (scheduling_algorithm != 'R') { // SJF, FCFS 
                 usleep(curr_proccess->burst_length); 
 
                 gettimeofday(&endtime, NULL);
@@ -148,7 +153,7 @@ void execute_process(queue_t* queue, int threadNo) {
                 curr_proccess->turnaround_time = curr_proccess->finish_time - curr_proccess->arrival_time;
                 curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
                 
-                printf("%ld - processing pid:%d burst: %ld threadNo: %d\n", finish_time, curr_proccess->pid, curr_proccess->burst_length, threadNo);
+                printf("time = %ld - processing pid:%d burst: %ld threadNo: %d\n", finish_time, curr_proccess->pid, curr_proccess->burst_length, threadNo);
             } else { // RR
                 if (curr_proccess->remaining_time > time_quantum) {
                     usleep(time_quantum);
@@ -165,7 +170,7 @@ void execute_process(queue_t* queue, int threadNo) {
                     curr_proccess->finish_time = finish_time;
                     curr_proccess->turnaround_time = curr_proccess->finish_time - curr_proccess->arrival_time;
                     curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
-                    printf("%ld - processing pid:%d burst: %ld threadNo: %d\n", finish_time, curr_proccess->pid, curr_proccess->burst_length, threadNo);
+                    printf("time = %ld - processing pid:%d burst: %ld threadNo: %d\n", finish_time, curr_proccess->pid, curr_proccess->burst_length, threadNo);
                 }
             }
             
@@ -182,7 +187,7 @@ void* thread_function(void* args) {
     while(1) {
         // queuedan process al varsa yoksa bekle
         if (scheduling_approach == 'M') {   // Multi queue
-            execute_process(queue_array[thread_args->threadNo], thread_args->threadNo);
+            execute_process(queue_array[thread_args->threadNo - 1], thread_args->threadNo);
         } else {    // Single queue
             execute_process(single_queue, thread_args->threadNo);
         }
@@ -193,7 +198,6 @@ int main(int argc, char* argv[]) {
 
     // Get arguments
     char* input_file = "in.txt";
-    int output_mode = 1;
     char* output_file = "out.txt";
     int random_mode = 0;
     int T = 0, T1 = 0, T2 = 0, L = 0, L1 = 0, L2 = 0;
@@ -212,7 +216,7 @@ int main(int argc, char* argv[]) {
                         exit(1);
                     }
                     if (optarg[1] == 'L') {
-                        queue_selection_method[0] = "L";
+                        queue_selection_method = 'L';
                     }
                 } else if (scheduling_approach != 'S') {
                     printf("Error: Invalid scheduling approach.\n");
@@ -220,7 +224,7 @@ int main(int argc, char* argv[]) {
                 }
                 break;
             case 's':
-                // TODO: scheduling_algorithm = optarg[0];
+                scheduling_algorithm = optarg[0];
                 if (scheduling_algorithm == 'R') {
                     time_quantum = atoi(optarg+1);
                 } else if (scheduling_algorithm != 'F' && scheduling_algorithm != 'S') {
@@ -259,12 +263,12 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < num_processors; i++) {
         ThreadArgs* args = (ThreadArgs*) malloc(sizeof(ThreadArgs));
-        args->threadNo = i;
-        printf("Creating thread %d\n", i);
+        args->threadNo = i+1;
+        printf("Creating thread %d\n", i+1);
         rc = pthread_create(&threads[i], NULL, thread_function, args);
 
         if (rc) {
-            printf("Error creating thread %d\n", i);
+            printf("Error creating thread %d\n", i+1);
             return -1;
         }
     }
@@ -291,6 +295,8 @@ int main(int argc, char* argv[]) {
     }
 
     int pid = 1; //first process id is 1.
+    int queue_index = 0;
+
     while (fgets(line, 100, fp)) {
         printf("line: %s", line);
 
@@ -305,10 +311,9 @@ int main(int argc, char* argv[]) {
             pid++;
             newBurst->burst_length = burst_length;
 
-            gettimeofday(&currenttime, NULL);
-            long elapsed_sec = starttime.tv_sec - currenttime.tv_sec;
-            long elapsed_msec = starttime.tv_usec - currenttime.tv_usec;
-            long arrival_time = elapsed_sec * 1000000L + elapsed_msec;
+            gettimeofday(&endtime, NULL);
+            // Calculate elapsed time
+            long int arrival_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
             newBurst->arrival_time = arrival_time;
 
 
@@ -320,18 +325,20 @@ int main(int argc, char* argv[]) {
             //printf("process pid: %d added to queue\n", newBurst->pid);
 
             if( scheduling_approach == 'S' ) {
-                printf("process pid: %d added to queue\n", newBurst->pid);
+                printf("time = %ld, process pid: %d added to queue\n", arrival_time, newBurst->pid);
                 add_to_queue(single_queue, newBurst);
             }
             else if ( scheduling_approach == 'M') {
                 //ToDo: LM OR RM implementation
-                int queue_index = 0;
                 if (queue_selection_method == 'R') {//Round Robin
+                    printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, queue_index);
+
                     add_to_queue(queue_array[queue_index], newBurst);
                     queue_index = ( queue_index + 1 ) % num_processors;
                 }
                 else if (queue_selection_method == 'L') {//Load Balancing
                     int q_index = load_balance_queue_find(queue_array);
+                    printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, q_index);
                     add_to_queue(queue_array[q_index], newBurst);
                 }
             }
@@ -351,13 +358,19 @@ int main(int argc, char* argv[]) {
     }
 
     if (scheduling_approach == 'S') {
+        // queue sonuna bi marker koy o geldiğinde diğer threadleri bekle
         process_t* dummyBurst = (process_t *) malloc(sizeof(process_t));
         dummyBurst->pid = -1;
         add_to_queue(single_queue, dummyBurst);
-        // TODO: queue sonuna bi marker koy o geldiğinde diğer threadleri bekle
     }
     else if (scheduling_approach == 'M') {
-        // TODO: queue sonuna bi marker koy o geldiğinde diğer threadleri bekle
+        // queue sonuna bi marker koy o geldiğinde diğer threadleri bekle
+        for (int i = 0; i < num_processors; i++) {
+            process_t* dummyBurst = (process_t *) malloc(sizeof(process_t));
+            dummyBurst->pid = -1;
+            add_to_queue(queue_array[i], dummyBurst);
+        }
+        
     }
 
 
