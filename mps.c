@@ -45,9 +45,10 @@ typedef struct queue
     pthread_mutex_t lock; // mutex lock to protect the queue
 } queue_t;
 
-queue_t *single_queue;
-queue_t **queue_array;
-process_t *bursted_process; // TODO:
+queue_t* single_queue;
+queue_t** queue_array;
+node_t* bursted_process = NULL;    // Sorted linked list
+pthread_mutex_t bursted_process_lock; // mutex lock to protect the sorted linked list
 
 // Function to create a new node
 node_t *new_node(process_t *process)
@@ -56,6 +57,26 @@ node_t *new_node(process_t *process)
     node->process = process;
     node->next = NULL;
     return node;
+}
+// Create sorted linked list for bursted process
+void insert_sorted_by_pid(process_t *process) {
+    node_t *node = new_node(process);
+    pthread_mutex_lock(&bursted_process_lock);
+
+    if (bursted_process == NULL || bursted_process->process->pid > process->pid) {
+        node->next = bursted_process;
+        bursted_process = node;
+    } else {
+        node_t *current = bursted_process;
+        while (current->next != NULL && current->next->process->pid <= process->pid) {
+            current = current->next;
+        }
+
+        node->next = current->next;
+        current->next = node;
+    }
+
+    pthread_mutex_unlock(&bursted_process_lock);
 }
 
 int load_balance_queue_find(queue_t **queues)
@@ -112,21 +133,30 @@ void add_to_queue(queue_t *queue, process_t *process)
     pthread_mutex_unlock(&(queue->lock));
 }
 
+node_t *findShortestJob(queue_t *queue) {
+    node_t *shortestJob = queue->head;
+    node_t *traverser = shortestJob->next;
+    while (traverser != NULL) {
+        if (traverser->process->burst_length < shortestJob->process->burst_length) {
+            shortestJob = traverser;
+        }
+        traverser = traverser->next;
+    }
+    return shortestJob;
+}
+
 // Function to pick a process from the ready queue
 process_t *pick_from_queue(queue_t *queue)
 {
     pthread_mutex_lock(&(queue->lock));
-    if (queue->head == NULL)
-    {
+    if (queue->head == NULL) {
         pthread_mutex_unlock(&(queue->lock));
         return NULL;
     }
-    else if (strcomp(scheduling_algorithm, "FCFS") == 0)
-    {
+    else if (scheduling_algorithm == 'F' || scheduling_algorithm == 'R') {
         node_t *node = queue->head;
         queue->head = queue->head->next;
-        if (queue->head == NULL)
-        {
+        if (queue->head == NULL) {
             queue->tail = NULL;
         }
         pthread_mutex_unlock(&(queue->lock));
@@ -134,24 +164,18 @@ process_t *pick_from_queue(queue_t *queue)
         free(node);
         return process;
     }
-    else if (strcomp(scheduling_algorithm, "SJF") == 0)
-    {
+    else {
         node_t *sjnode = findShortestJob(queue);
         process_t *process = sjnode->process;
-        if (sjnode == queue->head)
-        {
+        if (sjnode == queue->head) {
             queue->head = sjnode->next;
-        }
-        else
-        {
+        } else {
             node_t *curr_node = queue->head;
-            while (curr_node->next != sjnode)
-            {
+            while (curr_node->next != sjnode) {
                 curr_node = curr_node->next;
             }
             curr_node->next = sjnode->next;
-            if (sjnode == queue->tail)
-            { // check it: NOT POSSIBLE BUT DEFENCE??
+            if (sjnode == queue->tail) { // check it: NOT POSSIBLE BUT DEFENCE??
                 queue->tail = curr_node;
             }
         }
@@ -161,34 +185,16 @@ process_t *pick_from_queue(queue_t *queue)
     }
 }
 
-node_t *findShortestJob(queue_t *queue)
-{
-    node_t *shortestJob = queue->head;
-    node_t *traverser = shortestJob->next;
-    while (traverser != NULL)
-    {
-        if (traverser->process->burst_length < shortestJob->process->burst_length)
-        {
-            shortestJob = traverser;
-        }
-        traverser = traverser->next;
-    }
-    return shortestJob;
-}
-
-typedef struct
-{
+typedef struct {
     int threadNo;
 } ThreadArgs;
 
-void execute_process(queue_t *queue, int threadNo)
-{
+void execute_process(queue_t *queue, int threadNo) {
     printf(" thread %d try to execute process\n", threadNo);
 
     process_t *curr_proccess = pick_from_queue(queue);
 
-    if (curr_proccess != NULL && output_mode != 1 && curr_proccess->pid != -1)
-    {
+    if (curr_proccess != NULL && output_mode != 1 && curr_proccess->pid != -1) {
         gettimeofday(&endtime, NULL);
         // Calculate elapsed time
         long int timestamp = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
@@ -196,13 +202,9 @@ void execute_process(queue_t *queue, int threadNo)
     }
 
     // Wait 1 sec if there is no process
-    if (curr_proccess == NULL)
-    {
-        usleep(1);
-    }
-    else
-    {
-
+    if (curr_proccess == NULL) {
+        usleep(1000);
+    } else {
         // If marked node
         if (curr_proccess->pid == -1)
         {
@@ -214,9 +216,9 @@ void execute_process(queue_t *queue, int threadNo)
         else
         {
             // burst the process
-            if (scheduling_algorithm != 'R')
-            { // SJF, FCFS
-                usleep(curr_proccess->burst_length);
+
+            if (scheduling_algorithm != 'R') { // SJF, FCFS 
+                usleep(curr_proccess->burst_length*1000); 
 
                 gettimeofday(&endtime, NULL);
                 // Calculate elapsed time
@@ -224,22 +226,20 @@ void execute_process(queue_t *queue, int threadNo)
                 curr_proccess->finish_time = finish_time;
                 curr_proccess->turnaround_time = curr_proccess->finish_time - curr_proccess->arrival_time;
                 curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
-
+                curr_proccess->processor_id = threadNo;
+                
                 printf("time = %ld - processing pid:%d burst: %ld threadNo: %d\n", finish_time, curr_proccess->pid, curr_proccess->burst_length, threadNo);
-            }
-            else
-            { // RR
-                if (curr_proccess->remaining_time > time_quantum)
-                {
-                    usleep(time_quantum);
+                insert_sorted_by_pid(curr_proccess);
+            } else { // RR
+                if (curr_proccess->remaining_time > time_quantum) {
+                    usleep(time_quantum*1000);
                     // update remaining time
                     curr_proccess->remaining_time = curr_proccess->remaining_time - time_quantum;
                     // put back the end of the queue
                     add_to_queue(queue, curr_proccess);
-                }
-                else
-                {
-                    usleep(curr_proccess->remaining_time);
+                } else {
+                    usleep(curr_proccess->remaining_time*1000);
+
 
                     gettimeofday(&endtime, NULL);
                     // Calculate elapsed time
@@ -247,7 +247,10 @@ void execute_process(queue_t *queue, int threadNo)
                     curr_proccess->finish_time = finish_time;
                     curr_proccess->turnaround_time = curr_proccess->finish_time - curr_proccess->arrival_time;
                     curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
+                    curr_proccess->processor_id = threadNo;
                     printf("time = %ld - processing pid:%d burst: %ld threadNo: %d\n", finish_time, curr_proccess->pid, curr_proccess->burst_length, threadNo);
+                    
+                    insert_sorted_by_pid(curr_proccess);
                 }
             }
         }
@@ -455,10 +458,8 @@ int main(int argc, char *argv[])
                 printf("Error parsing interarrival time in line: %s", line);
                 return -1;
             }
-            usleep(interarrival_time);
-        }
-        else
-        {
+            usleep(interarrival_time*1000);
+        } else {
             // Invalid line
             printf("Error: Invalid line in input file: %s", line);
             return -1;
@@ -495,5 +496,12 @@ int main(int argc, char *argv[])
 
     printf("Threads finished\n");
 
+    printf("%-4s  %-4s  %-10s  %-8s  %-10s  %-14s  %-12s\n", "pid", "cpu", "burstlen", "arv", "finish", "waitingtime", "turnaround");
+    node_t* curr = bursted_process;
+    while (curr != NULL) {
+        printf("%-4d  %-4d  %-10ld  %-8ld  %-10ld  %-14ld  %-12ld\n", curr->process->pid, curr->process->processor_id, curr->process->burst_length, curr->process->arrival_time, curr->process->finish_time, curr->process->waiting_time, curr->process->turnaround_time);
+        curr = curr->next;
+    }
+    
     return 0;
 }
