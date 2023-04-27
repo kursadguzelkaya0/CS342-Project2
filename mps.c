@@ -12,9 +12,9 @@
 int num_processors = 1;
 char scheduling_approach = 'S';
 char queue_selection_method = 'L';
-char scheduling_algorithm = 'F';
+char scheduling_algorithm = 'S';
 int time_quantum = 20;
-int output_mode = 2;
+int output_mode = 3;
 
 struct timeval starttime, currenttime, endtime;
 
@@ -50,6 +50,10 @@ queue_t* single_queue;
 queue_t** queue_array;
 node_t* bursted_process = NULL;    // Sorted linked list
 pthread_mutex_t bursted_process_lock; // mutex lock to protect the sorted linked list
+
+long get_elapsed(struct timeval start_time, struct timeval end_time){
+    return (end_time.tv_sec - start_time.tv_sec) * 1000 + (end_time.tv_usec - start_time.tv_usec) / 1000;
+}
 
 // Function to create a new node
 node_t *new_node(process_t *process)
@@ -207,14 +211,15 @@ int generate_interarrivalorburst_time( int T, int T1, int T2 ) {
 
 
 void execute_process(queue_t *queue, int threadNo) {
-   // printf(" thread %d try to execute process\n", threadNo);
 
     process_t *curr_proccess = pick_from_queue(queue);
+    //printf(" thread %d try to execute process\n", threadNo);
 
     if (curr_proccess != NULL && output_mode != 1 && curr_proccess->pid != -1) {
         gettimeofday(&endtime, NULL);
         // Calculate elapsed time
-        long int timestamp = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+        long int timestamp = get_elapsed(starttime, endtime);
+
         printf("time =  %ld,  cpu = %d, pid = %d, burstlen = %ld, remainingtime = %ld\n", timestamp, threadNo, curr_proccess->pid, curr_proccess->burst_length, curr_proccess->remaining_time);
     }
 
@@ -239,19 +244,30 @@ void execute_process(queue_t *queue, int threadNo) {
 
                 gettimeofday(&endtime, NULL);
                 // Calculate elapsed time
-                long int finish_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+                long int finish_time = get_elapsed(starttime, endtime);
+
                 curr_proccess->finish_time = finish_time;
                 curr_proccess->turnaround_time = curr_proccess->finish_time - curr_proccess->arrival_time;
                 curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
                 curr_proccess->processor_id = threadNo;
-                
-                printf("time = %ld - processing pid:%d burst: %ld threadNo: %d\n", finish_time, curr_proccess->pid, curr_proccess->burst_length, threadNo);
+                if (output_mode == 3) {
+                    printf("Finished pid:%d, time = %ld burstlen: %ld cpu: %d\n",  curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                }
                 insert_sorted_by_pid(curr_proccess);
             } else { // RR
                 if (curr_proccess->remaining_time > time_quantum) {
                     usleep(time_quantum*1000);
                     // update remaining time
                     curr_proccess->remaining_time = curr_proccess->remaining_time - time_quantum;
+
+                    gettimeofday(&endtime, NULL);
+                    // Calculate elapsed time
+                    long int finish_time = get_elapsed(starttime, endtime);
+
+                    if (output_mode == 3) {
+                        printf("Finished time slice: %ld pid:%d, time = %ld burstlen: %ld cpu: %d\n", curr_proccess->burst_length-curr_proccess->remaining_time, curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                    }
+
                     // put back the end of the queue
                     add_to_queue(queue, curr_proccess);
                 } else {
@@ -260,12 +276,15 @@ void execute_process(queue_t *queue, int threadNo) {
 
                     gettimeofday(&endtime, NULL);
                     // Calculate elapsed time
-                    long int finish_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+                    long int finish_time = get_elapsed(starttime, endtime);
+
                     curr_proccess->finish_time = finish_time;
                     curr_proccess->turnaround_time = curr_proccess->finish_time - curr_proccess->arrival_time;
                     curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
                     curr_proccess->processor_id = threadNo;
-                    printf("time = %ld - processing pid:%d burst: %ld threadNo: %d\n", finish_time, curr_proccess->pid, curr_proccess->burst_length, threadNo);
+                    if (output_mode == 3) {
+                        printf("Finished pid:%d, time = %ld burst: %ld threadNo: %d\n", curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                    }
                     
                     insert_sorted_by_pid(curr_proccess);
                 }
@@ -301,7 +320,7 @@ int main(int argc, char *argv[])
     // Get arguments
     char *input_file = "in.txt";
     char *output_file = "out.txt";
-    int random_mode = 1;
+    int random_mode = 0;
     int T = 200, T1 = 10, T2 = 1000, L = 100, L1 = 10, L2 = 500, PC = 10;
 
     int opt;
@@ -435,7 +454,7 @@ int main(int argc, char *argv[])
 
                 gettimeofday(&endtime, NULL);
                 // Calculate elapsed time
-                long int arrival_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+                long int arrival_time = get_elapsed(starttime, endtime);
                 newBurst->arrival_time = arrival_time;
 
                 newBurst->remaining_time = burst_length;
@@ -446,8 +465,11 @@ int main(int argc, char *argv[])
                 // printf("process pid: %d added to queue\n", newBurst->pid);
 
                 if (scheduling_approach == 'S')
-                {
-                    printf("time = %ld, process pid: %d added to queue\n", arrival_time, newBurst->pid);
+                { 
+                    if (output_mode == 3) {
+                        printf("Add burst pid: %d at time = %ld to queue\n", newBurst->pid, arrival_time);
+                    }
+
                     add_to_queue(single_queue, newBurst);
                 }
                 else if (scheduling_approach == 'M')
@@ -455,15 +477,18 @@ int main(int argc, char *argv[])
                     // ToDo: LM OR RM implementation
                     if (queue_selection_method == 'R')
                     { // Round Robin ToDo: bu comparisonlarda sıkıntı olabilir ya
-                        printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, queue_index);
-
+                        if (output_mode == 3) {
+                            printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                        }
                         add_to_queue(queue_array[queue_index], newBurst);
                         queue_index = (queue_index + 1) % num_processors;
                     }
                     else if (queue_selection_method == 'L')
                     { // Load Balancing
                         int q_index = load_balance_queue_find(queue_array);
-                        printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, q_index);
+                        if (output_mode == 3) {
+                            printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                        }
                         add_to_queue(queue_array[q_index], newBurst);
                     }
                 }
@@ -497,7 +522,7 @@ int main(int argc, char *argv[])
 
                     gettimeofday(&endtime, NULL);
                     // Calculate elapsed time
-                    long int arrival_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+                    long int arrival_time = get_elapsed(starttime, endtime);
                     newBurst->arrival_time = arrival_time;
 
                     newBurst->remaining_time = burst_length;
@@ -508,7 +533,9 @@ int main(int argc, char *argv[])
                     // printf("process pid: %d added to queue\n", newBurst->pid);
                     if (scheduling_approach == 'S')
                     {
-                        printf("time = %ld, process pid: %d added to queue\n", arrival_time, newBurst->pid);
+                       if (output_mode == 3) {
+                            printf("Add burst pid: %d at time = %ld to queue\n", newBurst->pid, arrival_time);
+                        }
                         add_to_queue(single_queue, newBurst);
 
                     }
@@ -517,8 +544,9 @@ int main(int argc, char *argv[])
                         // ToDo: LM OR RM implementation
                         if (queue_selection_method == 'R')
                         { // Round Robin ToDo: bu comparisonlarda sıkıntı olabilir ya
-                            printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, queue_index);
-
+                            if (output_mode == 3) {
+                                printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                            }
                             add_to_queue(queue_array[queue_index], newBurst);
                             queue_index = (queue_index + 1) % num_processors;
 
@@ -526,7 +554,9 @@ int main(int argc, char *argv[])
                         else if (queue_selection_method == 'L')
                         { // Load Balancing
                             int q_index = load_balance_queue_find(queue_array);
-                            printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, q_index);
+                            if (output_mode == 3) {
+                                printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                            }
                             add_to_queue(queue_array[q_index], newBurst);
                         }
                     }
@@ -535,7 +565,7 @@ int main(int argc, char *argv[])
 
                     usleep(interarrival_time*1000);
                 }
-    } 
+    }
    
 
     if (scheduling_approach == 'S')
@@ -569,10 +599,16 @@ int main(int argc, char *argv[])
 
     printf("%-4s  %-4s  %-10s  %-8s  %-10s  %-14s  %-12s\n", "pid", "cpu", "burstlen", "arv", "finish", "waitingtime", "turnaround");
     node_t* curr = bursted_process;
+    int count = 0;
+    long int total_turnaround = 0;
     while (curr != NULL) {
         printf("%-4d  %-4d  %-10ld  %-8ld  %-10ld  %-14ld  %-12ld\n", curr->process->pid, curr->process->processor_id, curr->process->burst_length, curr->process->arrival_time, curr->process->finish_time, curr->process->waiting_time, curr->process->turnaround_time);
+        total_turnaround += curr->process->turnaround_time;
         curr = curr->next;
+        count++;
     }
+    printf("Average turnaround time: %ld\n", total_turnaround/count);
+
     
     return 0;
 }
