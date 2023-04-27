@@ -6,10 +6,11 @@
 #include <sys/time.h>
 #include <getopt.h>
 #include <unistd.h>
+#include <math.h>
 
 // Global variables
-int num_processors = 2;
-char scheduling_approach = 'M';
+int num_processors = 1;
+char scheduling_approach = 'S';
 char queue_selection_method = 'L';
 char scheduling_algorithm = 'F';
 int time_quantum = 20;
@@ -189,8 +190,24 @@ typedef struct {
     int threadNo;
 } ThreadArgs;
 
+
+int generate_interarrivalorburst_time( int T, int T1, int T2 ) {
+    double lambda = (double)1/(double)T;
+    //srand(time(NULL));
+    while(1) {
+        double u = (double) rand() / (double) RAND_MAX;
+
+        double x = (-1) * log(1-u) / lambda;
+        if ( x >= T1 && x <= T2 ) {
+
+            return (int) round(x);
+        }
+    }
+}
+
+
 void execute_process(queue_t *queue, int threadNo) {
-    printf(" thread %d try to execute process\n", threadNo);
+   // printf(" thread %d try to execute process\n", threadNo);
 
     process_t *curr_proccess = pick_from_queue(queue);
 
@@ -284,8 +301,8 @@ int main(int argc, char *argv[])
     // Get arguments
     char *input_file = "in.txt";
     char *output_file = "out.txt";
-    int random_mode = 0;
-    int T = 0, T1 = 0, T2 = 0, L = 0, L1 = 0, L2 = 0;
+    int random_mode = 1;
+    int T = 200, T1 = 10, T2 = 1000, L = 100, L1 = 10, L2 = 500, PC = 10;
 
     int opt;
     while ((opt = getopt(argc, argv, "n:a:s:i:m:o:r:")) != -1)
@@ -328,6 +345,7 @@ int main(int argc, char *argv[])
             }
             break;
         case 'i':
+            random_mode = 0;
             input_file = optarg;
             break;
         case 'm':
@@ -385,86 +403,140 @@ int main(int argc, char *argv[])
             queue_array[i] = (queue_t *)malloc(sizeof(queue_t));
         }
     }
-
-    FILE *fp;
-    char line[100];
-
-    fp = fopen(input_file, "r");
-    if (fp == NULL)
-    {
-        printf("Failed to open file\n");
-    }
-
-    int pid = 1; // first process id is 1.
+    int pid = 1;
+    // first process id is 1.
     int queue_index = 0;
+    if ( random_mode == 0 ) {
+        FILE *fp;
+        char line[100];
 
-    while (fgets(line, 100, fp))
-    {
-        printf("line: %s", line);
-
-        if (line[0] == 'P' && line[1] == 'L')
+        fp = fopen(input_file, "r");
+        if (fp == NULL)
         {
-            int burst_length;
-            if (sscanf(line, "PL %d", &burst_length) != 1)
+            printf("Failed to open file\n");
+        }
+
+        while (fgets(line, 100, fp))
+        {
+            printf("line: %s", line);
+
+            if (line[0] == 'P' && line[1] == 'L')
             {
-                printf("Error parsing burst length in line: %s", line);
+                int burst_length;
+                if (sscanf(line, "PL %d", &burst_length) != 1)
+                {
+                    printf("Error parsing burst length in line: %s", line);
+                    return -1;
+                }
+                process_t *newBurst = (process_t *)malloc(sizeof(process_t));
+                newBurst->pid = pid;
+                pid++;
+                newBurst->burst_length = burst_length;
+
+                gettimeofday(&endtime, NULL);
+                // Calculate elapsed time
+                long int arrival_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+                newBurst->arrival_time = arrival_time;
+
+                newBurst->remaining_time = burst_length;
+                newBurst->finish_time = 0;     // will be updated later
+                newBurst->turnaround_time = 0; // will be updated later
+                newBurst->waiting_time = 0;    // will be updated later
+                newBurst->processor_id = -1;   // not assigned to any processor yet
+                // printf("process pid: %d added to queue\n", newBurst->pid);
+
+                if (scheduling_approach == 'S')
+                {
+                    printf("time = %ld, process pid: %d added to queue\n", arrival_time, newBurst->pid);
+                    add_to_queue(single_queue, newBurst);
+                }
+                else if (scheduling_approach == 'M')
+                {
+                    // ToDo: LM OR RM implementation
+                    if (queue_selection_method == 'R')
+                    { // Round Robin ToDo: bu comparisonlarda sıkıntı olabilir ya
+                        printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, queue_index);
+
+                        add_to_queue(queue_array[queue_index], newBurst);
+                        queue_index = (queue_index + 1) % num_processors;
+                    }
+                    else if (queue_selection_method == 'L')
+                    { // Load Balancing
+                        int q_index = load_balance_queue_find(queue_array);
+                        printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, q_index);
+                        add_to_queue(queue_array[q_index], newBurst);
+                    }
+                }
+            }
+            else if (line[0] == 'I' && line[1] == 'A' && line[2] == 'T')
+            {
+                int interarrival_time;
+                if (sscanf(line, "IAT %d", &interarrival_time) != 1)
+                {
+                    printf("Error parsing interarrival time in line: %s", line);
+                    return -1;
+                }
+                usleep(interarrival_time*1000);
+            } else {
+                // Invalid line
+                printf("Error: Invalid line in input file: %s", line);
                 return -1;
             }
-            process_t *newBurst = (process_t *)malloc(sizeof(process_t));
-            newBurst->pid = pid;
-            pid++;
-            newBurst->burst_length = burst_length;
-
-            gettimeofday(&endtime, NULL);
-            // Calculate elapsed time
-            long int arrival_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
-            newBurst->arrival_time = arrival_time;
-
-            newBurst->remaining_time = burst_length;
-            newBurst->finish_time = 0;     // will be updated later
-            newBurst->turnaround_time = 0; // will be updated later
-            newBurst->waiting_time = 0;    // will be updated later
-            newBurst->processor_id = -1;   // not assigned to any processor yet
-            // printf("process pid: %d added to queue\n", newBurst->pid);
-
-            if (scheduling_approach == 'S')
-            {
-                printf("time = %ld, process pid: %d added to queue\n", arrival_time, newBurst->pid);
-                add_to_queue(single_queue, newBurst);
-            }
-            else if (scheduling_approach == 'M')
-            {
-                // ToDo: LM OR RM implementation
-                if (queue_selection_method == 'R')
-                { // Round Robin ToDo: bu comparisonlarda sıkıntı olabilir ya
-                    printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, queue_index);
-
-                    add_to_queue(queue_array[queue_index], newBurst);
-                    queue_index = (queue_index + 1) % num_processors;
-                }
-                else if (queue_selection_method == 'L')
-                { // Load Balancing
-                    int q_index = load_balance_queue_find(queue_array);
-                    printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, q_index);
-                    add_to_queue(queue_array[q_index], newBurst);
-                }
-            }
+            
         }
-        else if (line[0] == 'I' && line[1] == 'A' && line[2] == 'T')
-        {
-            int interarrival_time;
-            if (sscanf(line, "IAT %d", &interarrival_time) != 1)
-            {
-                printf("Error parsing interarrival time in line: %s", line);
-                return -1;
-            }
-            usleep(interarrival_time*1000);
-        } else {
-            // Invalid line
-            printf("Error: Invalid line in input file: %s", line);
-            return -1;
-        }
+    fclose(fp);
     }
+    else if ( random_mode == 1 ) {
+                for ( int i = 0; i < PC; i++ ) {
+                    int burst_length = generate_interarrivalorburst_time(L, L1, L2);
+                    printf("IN i: %d, Randomly generated burst length is %d\n", i, burst_length);
+                    process_t *newBurst = (process_t *)malloc(sizeof(process_t));
+                    newBurst->pid = pid;
+                    pid++;
+                    newBurst->burst_length = burst_length;
+
+                    gettimeofday(&endtime, NULL);
+                    // Calculate elapsed time
+                    long int arrival_time = (endtime.tv_sec - starttime.tv_sec) * 1000000L + (endtime.tv_usec - starttime.tv_usec);
+                    newBurst->arrival_time = arrival_time;
+
+                    newBurst->remaining_time = burst_length;
+                    newBurst->finish_time = 0;     // will be updated later
+                    newBurst->turnaround_time = 0; // will be updated later
+                    newBurst->waiting_time = 0;    // will be updated later
+                    newBurst->processor_id = -1;   // not assigned to any processor yet
+                    // printf("process pid: %d added to queue\n", newBurst->pid);
+                    if (scheduling_approach == 'S')
+                    {
+                        printf("time = %ld, process pid: %d added to queue\n", arrival_time, newBurst->pid);
+                        add_to_queue(single_queue, newBurst);
+
+                    }
+                    else if (scheduling_approach == 'M')
+                    {
+                        // ToDo: LM OR RM implementation
+                        if (queue_selection_method == 'R')
+                        { // Round Robin ToDo: bu comparisonlarda sıkıntı olabilir ya
+                            printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, queue_index);
+
+                            add_to_queue(queue_array[queue_index], newBurst);
+                            queue_index = (queue_index + 1) % num_processors;
+
+                        }
+                        else if (queue_selection_method == 'L')
+                        { // Load Balancing
+                            int q_index = load_balance_queue_find(queue_array);
+                            printf("time = %ld, process pid: %d added to queue: %d\n", arrival_time, newBurst->pid, q_index);
+                            add_to_queue(queue_array[q_index], newBurst);
+                        }
+                    }
+                    int interarrival_time = generate_interarrivalorburst_time(T, T1, T2);
+                    printf("Randomly generated IA length is %d\n", interarrival_time);
+
+                    usleep(interarrival_time*1000);
+                }
+    } 
+   
 
     if (scheduling_approach == 'S')
     {
@@ -475,7 +547,7 @@ int main(int argc, char *argv[])
     }
     else if (scheduling_approach == 'M')
     {
-        process_t **dummyBursts = (process_t **)malloc(sizeof(process_t *));
+        process_t **dummyBursts = (process_t **)malloc( num_processors * sizeof(process_t *) );
         for (int i = 0; i < num_processors; i++)
         {
             dummyBursts[i] = (process_t *)malloc(sizeof(process_t));
@@ -486,7 +558,6 @@ int main(int argc, char *argv[])
 
     // Read file
 
-    fclose(fp);
 
     // wait for all threads to finish
     for (int i = 0; i < num_processors; i++)
