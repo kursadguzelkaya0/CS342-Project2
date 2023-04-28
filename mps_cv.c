@@ -122,7 +122,7 @@ void add_to_queue(queue_t *queue, process_t *process)
         if ( scheduling_approach == 'S') {
             pthread_cond_broadcast(sq_cv);
         }
-        else if ( scheduling_approach == 'M' ) {
+        else if ( scheduling_approach == 'M') {
             pthread_cond_broadcast(cond_var_arr[process->processor_id - 1]);
         }
     }
@@ -168,6 +168,7 @@ process_t *pick_from_queue(queue_t *queue, int threadNo)
         }
         else if (scheduling_approach =='M') {
             pthread_cond_wait(cond_var_arr[threadNo -1],&(queue->lock));
+
         }
     }
     if (scheduling_algorithm == 'F' || scheduling_algorithm == 'R') {
@@ -493,6 +494,7 @@ int main(int argc, char *argv[])
                         if (output_mode == 3) {
                             printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
                         }
+                        newBurst->processor_id = queue_index + 1;
                         add_to_queue(queue_array[queue_index], newBurst);
                         queue_index = (queue_index + 1) % num_processors;
                     }
@@ -502,6 +504,7 @@ int main(int argc, char *argv[])
                         if (output_mode == 3) {
                             printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
                         }
+                        newBurst->processor_id = q_index + 1;
                         add_to_queue(queue_array[q_index], newBurst);
                     }
                 }
@@ -560,6 +563,7 @@ int main(int argc, char *argv[])
                             if (output_mode == 3) {
                                 printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
                             }
+                            newBurst->processor_id = queue_index + 1;
                             add_to_queue(queue_array[queue_index], newBurst);
                             queue_index = (queue_index + 1) % num_processors;
 
@@ -570,6 +574,7 @@ int main(int argc, char *argv[])
                             if (output_mode == 3) {
                                 printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
                             }
+                            newBurst->processor_id = q_index + 1;
                             add_to_queue(queue_array[q_index], newBurst);
                         }
                     }
@@ -595,6 +600,7 @@ int main(int argc, char *argv[])
         {
             dummyBursts[i] = (process_t *)malloc(sizeof(process_t));
             dummyBursts[i]->pid = -1;
+            dummyBursts[i]->processor_id = i+1;
             add_to_queue(queue_array[i], dummyBursts[i]);
         } // TODO: queue sonuna bi marker koy o geldiğinde diğer threadleri bekle
     }
