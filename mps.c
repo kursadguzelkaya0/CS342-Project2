@@ -15,6 +15,8 @@ char queue_selection_method = 'R';
 char scheduling_algorithm = 'R';
 int time_quantum = 10;
 int output_mode = 3;
+char *output_file = "";
+FILE *ofp;
 
 struct timeval starttime, currenttime, endtime;
 
@@ -153,15 +155,17 @@ node_t *findShortestJob(queue_t *queue) {
 // Function to pick a process from the ready queue
 process_t *pick_from_queue(queue_t *queue)
 {
-    printf("üstü burası ");
-    pthread_mutex_lock((queue->lock));
-    printf("altı burası ");
+        printf("000\n"); // TODO: Delete
 
+    pthread_mutex_lock((queue->lock));
+        printf("1133\n");
+    /**/
     if (queue->head == NULL) {
         pthread_mutex_unlock((queue->lock));
         return NULL;
     }
     else if (scheduling_algorithm == 'F' || scheduling_algorithm == 'R') {
+
         node_t *node = queue->head;
         queue->head = queue->head->next;
         if (queue->head == NULL) {
@@ -169,11 +173,12 @@ process_t *pick_from_queue(queue_t *queue)
         }
         pthread_mutex_unlock((queue->lock));
         process_t *process = node->process;
-        free(node);
+        //free(node);
         return process;
     }
     else {
         node_t *sjnode = findShortestJob(queue);
+
         process_t *process = sjnode->process;
         if (sjnode == queue->head) {
             queue->head = sjnode->next;
@@ -214,19 +219,18 @@ int generate_interarrivalorburst_time( int T, int T1, int T2 ) {
 
 
 void execute_process(queue_t *queue, int threadNo) {
-    printf(" icine girdim pick edecem %d\n", threadNo);
 
     process_t *curr_proccess = pick_from_queue(queue);
-    printf("pick ettimö cıkıyom %d\n", threadNo);
-
-    //printf(" thread %d try to execute process\n", threadNo);
-
     if (curr_proccess != NULL && output_mode != 1 && curr_proccess->pid != -1) {
         gettimeofday(&endtime, NULL);
         // Calculate elapsed time
         long int timestamp = get_elapsed(starttime, endtime);
 
-        printf("Picked at time =  %ld,  cpu = %d, pid = %d, burstlen = %ld, remainingtime = %ld\n", timestamp, threadNo, curr_proccess->pid, curr_proccess->burst_length, curr_proccess->remaining_time); //MODE 2'de de böyle bastırılabilir, ödev acıklamasında sorun yok gibi
+        if (strcmp(output_file, "") != 0){
+            fprintf(ofp,"time =  %ld,  cpu = %d, pid = %d, burstlen = %ld, remainingtime = %ld\n", timestamp, threadNo, curr_proccess->pid, curr_proccess->burst_length, curr_proccess->remaining_time);
+        } else {
+            printf("time =  %ld,  cpu = %d, pid = %d, burstlen = %ld, remainingtime = %ld\n", timestamp, threadNo, curr_proccess->pid, curr_proccess->burst_length, curr_proccess->remaining_time);
+        }
     }
 
     // Wait 1 sec if there is no process
@@ -236,7 +240,13 @@ void execute_process(queue_t *queue, int threadNo) {
         // If marked node
         if (curr_proccess->pid == -1)
         {
-            printf("Exit thread %d\n", threadNo);
+            if (output_mode == 3) {
+                if (strcmp(output_file, "") != 0){
+                    fprintf(ofp, "Exit thread %d\n", threadNo);
+                } else {
+                    printf("Exit thread %d\n", threadNo);
+                }
+            } 
             add_to_queue(queue, curr_proccess);
 
             pthread_exit(NULL);
@@ -257,7 +267,11 @@ void execute_process(queue_t *queue, int threadNo) {
                 curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
                 curr_proccess->processor_id = threadNo;
                 if (output_mode == 3) {
-                    printf("Finished pid:%d, time = %ld burstlen: %ld cpu: %d\n",  curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                    if (strcmp(output_file, "") != 0){
+                        fprintf(ofp, "Finished pid:%d, time = %ld burstlen: %ld cpu: %d\n",  curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                    } else {
+                        printf("Finished pid:%d, time = %ld burstlen: %ld cpu: %d\n",  curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                    }
                 }
                 insert_sorted_by_pid(curr_proccess);
             } else { // RR
@@ -271,7 +285,11 @@ void execute_process(queue_t *queue, int threadNo) {
                     long int finish_time = get_elapsed(starttime, endtime);
 
                     if (output_mode == 3) {
-                        printf("Finished time slice: %ld pid:%d, time = %ld burstlen: %ld cpu: %d\n", curr_proccess->burst_length-curr_proccess->remaining_time, curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                        if (strcmp(output_file, "") != 0){
+                            fprintf(ofp, "Finished time slice: %ld pid:%d, time = %ld burstlen: %ld cpu: %d\n", curr_proccess->burst_length-curr_proccess->remaining_time, curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                        } else {
+                            printf("Finished time slice: %ld pid:%d, time = %ld burstlen: %ld cpu: %d\n", curr_proccess->burst_length-curr_proccess->remaining_time, curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                        }
                     }
 
                     // put back the end of the queue
@@ -289,7 +307,12 @@ void execute_process(queue_t *queue, int threadNo) {
                     curr_proccess->waiting_time = curr_proccess->turnaround_time - curr_proccess->burst_length;
                     curr_proccess->processor_id = threadNo;
                     if (output_mode == 3) {
-                        printf("Finished pid:%d, time = %ld burst: %ld threadNo: %d\n", curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+
+                        if (strcmp(output_file, "") != 0){
+                            fprintf(ofp, "Finished pid:%d, time = %ld burst: %ld threadNo: %d\n", curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                        } else {
+                            printf("Finished pid:%d, time = %ld burst: %ld threadNo: %d\n", curr_proccess->pid, finish_time, curr_proccess->burst_length, threadNo);
+                        }
                     }
                     
                     insert_sorted_by_pid(curr_proccess);
@@ -304,15 +327,20 @@ void *thread_function(void *args)
     ThreadArgs *thread_args = (ThreadArgs *)args;
 
     // the function that will be run by each thread
-    printf("Hello from thread %d\n", thread_args->threadNo);
+    if (output_mode == 3) {
+
+        if (strcmp(output_file, "") != 0){
+            fprintf(ofp, "Hello from thread %d\n", thread_args->threadNo);
+        } else {
+            printf("Hello from thread %d\n", thread_args->threadNo);
+        }
+    }
 
     while (1)
     {
         // queuedan process al varsa yoksa bekle
         if (scheduling_approach == 'M')
         { // Multi queue
-            printf("icine giriyorum ");
-
             execute_process(queue_array[thread_args->threadNo - 1], thread_args->threadNo);
         }
         else
@@ -326,8 +354,7 @@ int main(int argc, char *argv[])
 {
 
     // Get arguments
-    char *input_file = "in.txt";
-    char *output_file = "out.txt";
+    char *input_file = "infile.txt";
     int random_mode = 0;
     int T = 200, T1 = 10, T2 = 1000, L = 100, L1 = 10, L2 = 500, PC = 30;
 
@@ -363,7 +390,7 @@ int main(int argc, char *argv[])
             scheduling_algorithm = optarg[0];
             if (scheduling_algorithm == 'R')
             {
-                time_quantum = atoi(optarg + 1);
+                time_quantum = atoi(optarg + 3);
             }
             else if (scheduling_algorithm != 'F' && scheduling_algorithm != 'S')
             {
@@ -380,6 +407,8 @@ int main(int argc, char *argv[])
             break;
         case 'o':
             output_file = optarg;
+             // open the file for writing
+            ofp = fopen(output_file, "w");
             break;
         case 'r':
             random_mode = 1;
@@ -390,6 +419,7 @@ int main(int argc, char *argv[])
             exit(1);
         }
     }
+
 
     // start the timer
     time_t t;
@@ -404,12 +434,17 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < num_processors; i++)
     {
-        printf("i is %d and before creating args", i);
         ThreadArgs *args = (ThreadArgs *)malloc(num_processors * sizeof(ThreadArgs));
-        printf("i is %d and after creating args", i);
 
         args->threadNo = i + 1;
-        printf("Creating thread %d\n", i + 1);
+        if (output_mode == 3) {
+            if (strcmp(output_file, "") != 0){
+                fprintf(ofp, "Creating thread %d\n", i + 1);
+            } else {
+                printf("Creating thread %d\n", i + 1);
+            }
+        }
+       
         rc = pthread_create(&threads[i], NULL, thread_function, args);
 
         if (rc)
@@ -484,7 +519,11 @@ int main(int argc, char *argv[])
                 if (scheduling_approach == 'S')
                 { 
                     if (output_mode == 3) {
-                        printf("Add burst pid: %d at time = %ld to queue\n", newBurst->pid, arrival_time);
+                        if (strcmp(output_file, "") != 0){
+                            fprintf(ofp, "Add burst pid: %d at time = %ld to queue\n", newBurst->pid, arrival_time);
+                        } else {
+                            printf("Add burst pid: %d at time = %ld to queue\n", newBurst->pid, arrival_time);
+                        }
                     }
 
                     add_to_queue(single_queue, newBurst);
@@ -495,7 +534,12 @@ int main(int argc, char *argv[])
                     if (queue_selection_method == 'R')
                     { // Round Robin ToDo: bu comparisonlarda sıkıntı olabilir ya
                         if (output_mode == 3) {
-                            printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                            if (strcmp(output_file, "") != 0){
+                                fprintf(ofp, "Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                            } else {
+                                printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                            }
+                            
                         }
                         add_to_queue(queue_array[queue_index], newBurst);
                         queue_index = (queue_index + 1) % num_processors;
@@ -504,7 +548,11 @@ int main(int argc, char *argv[])
                     { // Load Balancing
                         int q_index = load_balance_queue_find(queue_array);
                         if (output_mode == 3) {
-                            printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                            if (strcmp(output_file, "") != 0){
+                                fprintf(ofp, "Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                            } else {
+                                printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                            }
                         }
                         add_to_queue(queue_array[q_index], newBurst);
                     }
@@ -531,7 +579,14 @@ int main(int argc, char *argv[])
     else if ( random_mode == 1 ) {
                 for ( int i = 0; i < PC; i++ ) {
                     int burst_length = generate_interarrivalorburst_time(L, L1, L2);
-                    printf("IN i: %d, Randomly generated burst length is %d\n", i, burst_length);
+                    if (output_mode == 3) {
+                        if (strcmp(output_file, "") != 0){
+                            fprintf(ofp, "IN i: %d, Randomly generated burst length is %d\n", i, burst_length);
+                        } else {
+                            printf("IN i: %d, Randomly generated burst length is %d\n", i, burst_length);
+                        }
+                    }
+                   
                     process_t *newBurst = (process_t *)malloc(sizeof(process_t));
                     newBurst->pid = pid;
                     pid++;
@@ -551,7 +606,12 @@ int main(int argc, char *argv[])
                     if (scheduling_approach == 'S')
                     {
                        if (output_mode == 3) {
-                            printf("Add burst pid: %d at time = %ld to queue\n", newBurst->pid, arrival_time);
+                            if (strcmp(output_file, "") != 0){
+                                fprintf(ofp, "Add burst pid: %d at time = %ld to queue\n", newBurst->pid, arrival_time);
+                            } else {
+                                printf("Add burst pid: %d at time = %ld to queue\n", newBurst->pid, arrival_time);
+                            }
+                            
                         }
                         add_to_queue(single_queue, newBurst);
 
@@ -562,7 +622,12 @@ int main(int argc, char *argv[])
                         if (queue_selection_method == 'R')
                         { // Round Robin ToDo: bu comparisonlarda sıkıntı olabilir ya
                             if (output_mode == 3) {
-                                printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                                if (strcmp(output_file, "") != 0){
+                                    fprintf(ofp, "Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                                } else {
+                                    printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                                }
+                                
                             }
                             add_to_queue(queue_array[queue_index], newBurst);
                             queue_index = (queue_index + 1) % num_processors;
@@ -572,13 +637,23 @@ int main(int argc, char *argv[])
                         { // Load Balancing
                             int q_index = load_balance_queue_find(queue_array);
                             if (output_mode == 3) {
-                                printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                                if (strcmp(output_file, "") != 0){
+                                    fprintf(ofp, "Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                                } else {
+                                    printf("Add burst pid: %d at time = %ld to queue: %d\n", newBurst->pid, arrival_time, queue_index);
+                                }
                             }
                             add_to_queue(queue_array[q_index], newBurst);
                         }
                     }
                     int interarrival_time = generate_interarrivalorburst_time(T, T1, T2);
-                    printf("Randomly generated IA length is %d\n", interarrival_time);
+                    if (output_mode == 3) {
+                        if (strcmp(output_file, "") != 0){
+                            fprintf(ofp, "Randomly generated IA length is %d\n", interarrival_time);
+                        } else {
+                            printf("Randomly generated IA length is %d\n", interarrival_time);
+                        }
+                    }
 
                     usleep(interarrival_time*1000);
                 }
@@ -612,20 +687,41 @@ int main(int argc, char *argv[])
         pthread_join(threads[i], NULL);
     }
 
-    printf("Threads finished\n");
+    if (output_mode == 3) {
+        if (strcmp(output_file, "") != 0){
+            fprintf(ofp, "Threads finished\n");
 
-    printf("%-4s  %-4s  %-10s  %-8s  %-10s  %-14s  %-12s\n", "pid", "cpu", "burstlen", "arv", "finish", "waitingtime", "turnaround");
+        } else {
+            printf("Threads finished\n");
+        }
+    }
+
+    if (strcmp(output_file, "") != 0){
+        fprintf(ofp, "%-4s  %-4s  %-10s  %-8s  %-10s  %-14s  %-12s\n", "pid", "cpu", "burstlen", "arv", "finish", "waitingtime", "turnaround");
+
+    } else {
+        printf("%-4s  %-4s  %-10s  %-8s  %-10s  %-14s  %-12s\n", "pid", "cpu", "burstlen", "arv", "finish", "waitingtime", "turnaround");
+    }
+    
     node_t* curr = bursted_process;
     int count = 0;
     long int total_turnaround = 0;
     while (curr != NULL) {
-        printf("%-4d  %-4d  %-10ld  %-8ld  %-10ld  %-14ld  %-12ld\n", curr->process->pid, curr->process->processor_id, curr->process->burst_length, curr->process->arrival_time, curr->process->finish_time, curr->process->waiting_time, curr->process->turnaround_time);
+        if (strcmp(output_file, "") != 0){
+            fprintf(ofp, "%-4d  %-4d  %-10ld  %-8ld  %-10ld  %-14ld  %-12ld\n", curr->process->pid, curr->process->processor_id, curr->process->burst_length, curr->process->arrival_time, curr->process->finish_time, curr->process->waiting_time, curr->process->turnaround_time);
+        } else {
+            printf("%-4d  %-4d  %-10ld  %-8ld  %-10ld  %-14ld  %-12ld\n", curr->process->pid, curr->process->processor_id, curr->process->burst_length, curr->process->arrival_time, curr->process->finish_time, curr->process->waiting_time, curr->process->turnaround_time);
+        }
         total_turnaround += curr->process->turnaround_time;
         curr = curr->next;
         count++;
     }
-    printf("Average turnaround time: %ld\n", total_turnaround/count);
+    if (strcmp(output_file, "") != 0){
+        fprintf(ofp, "Average turnaround time: %ld\n", total_turnaround/count);
 
+    } else {
+        printf("Average turnaround time: %ld\n", total_turnaround/count);
+    }
     
     return 0;
 }
