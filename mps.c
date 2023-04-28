@@ -155,10 +155,8 @@ node_t *findShortestJob(queue_t *queue) {
 // Function to pick a process from the ready queue
 process_t *pick_from_queue(queue_t *queue)
 {
-        printf("000\n"); // TODO: Delete
-
     pthread_mutex_lock((queue->lock));
-        printf("1133\n");
+
     /**/
     if (queue->head == NULL) {
         pthread_mutex_unlock((queue->lock));
