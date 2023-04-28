@@ -12,7 +12,7 @@
 int num_processors = 3;
 char scheduling_approach = 'M';
 char queue_selection_method = 'R';
-char scheduling_algorithm = 'R';
+char scheduling_algorithm = 'S';
 int time_quantum = 10;
 int output_mode = 3;
 
@@ -43,14 +43,15 @@ typedef struct queue
 {
     node_t *head;         // pointer to the head node
     node_t *tail;         // pointer to the tail node
-    pthread_mutex_t* lock; // mutex lock to protect the queue
+    pthread_mutex_t lock; // mutex lock to protect the queue
 } queue_t;
 
 queue_t* single_queue;
 queue_t** queue_array;
 node_t* bursted_process = NULL;    // Sorted linked list
 pthread_mutex_t bursted_process_lock; // mutex lock to protect the sorted linked list
-
+pthread_cond_t* sq_cv;
+pthread_cond_t** cond_var_arr;
 long get_elapsed(struct timeval start_time, struct timeval end_time){
     return (end_time.tv_sec - start_time.tv_sec) * 1000 + (end_time.tv_usec - start_time.tv_usec) / 1000;
 }
@@ -113,11 +114,17 @@ int load_balance_queue_find(queue_t **queues)
 void add_to_queue(queue_t *queue, process_t *process)
 {
     node_t *node = new_node(process);
-    pthread_mutex_lock((queue->lock));
+    pthread_mutex_lock(&(queue->lock));
     if (queue->head == NULL)
     {
         queue->head = node;
         queue->tail = node;
+        if ( scheduling_approach == 'S') {
+            pthread_cond_broadcast(sq_cv);
+        }
+        else if ( scheduling_approach == 'M' ) {
+            pthread_cond_broadcast(cond_var_arr[process->processor_id - 1]);
+        }
     }
     else
     {
@@ -135,7 +142,7 @@ void add_to_queue(queue_t *queue, process_t *process)
             queue->tail = node;
         }
     }
-    pthread_mutex_unlock((queue->lock));
+    pthread_mutex_unlock(&(queue->lock));
 }
 
 node_t *findShortestJob(queue_t *queue) {
@@ -151,23 +158,25 @@ node_t *findShortestJob(queue_t *queue) {
 }
 
 // Function to pick a process from the ready queue
-process_t *pick_from_queue(queue_t *queue)
+process_t *pick_from_queue(queue_t *queue, int threadNo)
 {
-    printf("üstü burası ");
-    pthread_mutex_lock((queue->lock));
-    printf("altı burası ");
-
-    if (queue->head == NULL) {
-        pthread_mutex_unlock((queue->lock));
-        return NULL;
+    pthread_mutex_lock(&(queue->lock));
+     
+    while (queue->head == NULL) {
+        if (scheduling_approach == 'S') {
+            pthread_cond_wait(sq_cv,&(queue->lock));
+        }
+        else if (scheduling_approach =='M') {
+            pthread_cond_wait(cond_var_arr[threadNo -1],&(queue->lock));
+        }
     }
-    else if (scheduling_algorithm == 'F' || scheduling_algorithm == 'R') {
+    if (scheduling_algorithm == 'F' || scheduling_algorithm == 'R') {
         node_t *node = queue->head;
         queue->head = queue->head->next;
         if (queue->head == NULL) {
             queue->tail = NULL;
         }
-        pthread_mutex_unlock((queue->lock));
+        pthread_mutex_unlock(&(queue->lock));
         process_t *process = node->process;
         free(node);
         return process;
@@ -187,7 +196,7 @@ process_t *pick_from_queue(queue_t *queue)
                 queue->tail = curr_node;
             }
         }
-        pthread_mutex_unlock((queue->lock));
+        pthread_mutex_unlock(&(queue->lock));
         free(sjnode);
         return process;
     }
@@ -214,11 +223,7 @@ int generate_interarrivalorburst_time( int T, int T1, int T2 ) {
 
 
 void execute_process(queue_t *queue, int threadNo) {
-    printf(" icine girdim pick edecem %d\n", threadNo);
-
-    process_t *curr_proccess = pick_from_queue(queue);
-    printf("pick ettimö cıkıyom %d\n", threadNo);
-
+    process_t *curr_proccess = pick_from_queue(queue, threadNo);
     //printf(" thread %d try to execute process\n", threadNo);
 
     if (curr_proccess != NULL && output_mode != 1 && curr_proccess->pid != -1) {
@@ -231,7 +236,7 @@ void execute_process(queue_t *queue, int threadNo) {
 
     // Wait 1 sec if there is no process
     if (curr_proccess == NULL) {
-        usleep(1000);
+        printf("This shouldn't be possible now!");
     } else {
         // If marked node
         if (curr_proccess->pid == -1)
@@ -311,8 +316,6 @@ void *thread_function(void *args)
         // queuedan process al varsa yoksa bekle
         if (scheduling_approach == 'M')
         { // Multi queue
-            printf("icine giriyorum ");
-
             execute_process(queue_array[thread_args->threadNo - 1], thread_args->threadNo);
         }
         else
@@ -398,16 +401,12 @@ int main(int argc, char *argv[])
     gettimeofday(&starttime, NULL);
 
     // Create processor threads
-    //pthread_t threads[num_processors];
-    pthread_t* threads = malloc(num_processors * sizeof(pthread_t));
+    pthread_t threads[num_processors];
     int rc;
 
     for (int i = 0; i < num_processors; i++)
     {
-        printf("i is %d and before creating args", i);
-        ThreadArgs *args = (ThreadArgs *)malloc(num_processors * sizeof(ThreadArgs));
-        printf("i is %d and after creating args", i);
-
+        ThreadArgs *args = (ThreadArgs *)malloc(sizeof(ThreadArgs));
         args->threadNo = i + 1;
         printf("Creating thread %d\n", i + 1);
         rc = pthread_create(&threads[i], NULL, thread_function, args);
@@ -423,21 +422,18 @@ int main(int argc, char *argv[])
     if (scheduling_approach == 'S')
     {
         // Create ready queue
+        sq_cv = ( pthread_cond_t*  ) malloc(sizeof(pthread_cond_t));
         single_queue = (queue_t *)malloc(sizeof(queue_t));
-        single_queue->lock = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
-        pthread_mutex_init(single_queue->lock,NULL);
-
     }
     else
     {
         queue_array = (queue_t **)malloc(num_processors * sizeof(queue_t *));
+        cond_var_arr = (pthread_cond_t**)malloc(num_processors * sizeof(pthread_cond_t*));
 
         for (int i = 0; i < num_processors; i++)
         {
-            queue_array[i] = (queue_t *)malloc(sizeof(queue_t));
-            queue_array[i]->lock = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
-            pthread_mutex_init(queue_array[i]->lock,NULL);
-
+            cond_var_arr[i] =( pthread_cond_t*  ) malloc(sizeof(pthread_cond_t));
+            queue_array[i] = ( queue_t * )malloc(sizeof(queue_t));
         }
     }
     int pid = 1;
@@ -445,7 +441,7 @@ int main(int argc, char *argv[])
     int queue_index = 0;
     if ( random_mode == 0 ) {
         FILE *fp;
-        char line[100]; //
+        char line[100];
 
         fp = fopen(input_file, "r");
         if (fp == NULL)
